@@ -10,15 +10,20 @@ import scala.util.Try
 
 case class TableCatalog(glue: Glue)
 {
+    private val tableCache = scala.collection.mutable.Map.empty[String, Table]
+
     def describe(catalogIdOption: Option[String],
                  database: String,
                  table: String): Table =
     {
-        val req = new GetTableRequest()
-        catalogIdOption.foreach(req.setCatalogId)
-        req.setDatabaseName(database)
-        req.setName(table)
-        glue.withGlue(_.getTable(req)).getTable
+        val key = s"${catalogIdOption.getOrElse("")}/$database/$table"
+        tableCache.getOrElseUpdate(key, {
+            val req = new GetTableRequest()
+            catalogIdOption.foreach(req.setCatalogId)
+            req.setDatabaseName(database)
+            req.setName(table)
+            glue.withGlue(_.getTable(req)).getTable
+        })
     }
 
     def isPartitioned(catalogIdOption: Option[String],

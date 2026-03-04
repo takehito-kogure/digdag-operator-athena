@@ -16,6 +16,7 @@ import pro.civitaspo.digdag.plugin.athena.aws.sts.Sts
 
 
 case class Aws(conf: AwsConf)
+    extends java.io.Closeable
 {
     private[aws] def buildService[S <: AwsClientBuilder[S, T], T](builder: AwsClientBuilder[S, T]): T =
     {
@@ -25,10 +26,23 @@ case class Aws(conf: AwsConf)
             .build()
     }
 
-    lazy val s3: S3 = S3(this)
-    lazy val sts: Sts = Sts(this)
-    lazy val athena: Athena = Athena(this)
-    lazy val glue: Glue = Glue(this)
+    private var s3Opt: Option[S3] = None
+    private var stsOpt: Option[Sts] = None
+    private var athenaOpt: Option[Athena] = None
+    private var glueOpt: Option[Glue] = None
+
+    lazy val s3: S3 = { val svc = S3(this); s3Opt = Some(svc); svc }
+    lazy val sts: Sts = { val svc = Sts(this); stsOpt = Some(svc); svc }
+    lazy val athena: Athena = { val svc = Athena(this); athenaOpt = Some(svc); svc }
+    lazy val glue: Glue = { val svc = Glue(this); glueOpt = Some(svc); svc }
+
+    override def close(): Unit =
+    {
+        s3Opt.foreach(_.close())
+        stsOpt.foreach(_.close())
+        athenaOpt.foreach(_.close())
+        glueOpt.foreach(_.close())
+    }
 
     lazy val region: String = {
         conf.authMethod match {

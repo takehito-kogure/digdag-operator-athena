@@ -2,6 +2,7 @@ package pro.civitaspo.digdag.plugin.athena.aws.s3
 
 
 import com.amazonaws.services.s3.{AmazonS3, AmazonS3ClientBuilder, AmazonS3URI}
+import com.amazonaws.services.s3.model.ListObjectsV2Request
 import pro.civitaspo.digdag.plugin.athena.aws.{Aws, AwsService}
 
 import scala.jdk.CollectionConverters._
@@ -9,13 +10,19 @@ import scala.jdk.CollectionConverters._
 
 case class S3(aws: Aws)
     extends AwsService(aws)
+        with java.io.Closeable
 {
-    def withS3[A](f: AmazonS3 => A): A =
-    {
-        val s3 = aws.buildService(AmazonS3ClientBuilder.standard())
-        try f(s3)
-        finally s3.shutdown()
+    private var s3ClientOpt: Option[AmazonS3] = None
+
+    private def s3Client: AmazonS3 = s3ClientOpt.getOrElse {
+        val c = aws.buildService(AmazonS3ClientBuilder.standard())
+        s3ClientOpt = Some(c)
+        c
     }
+
+    override def close(): Unit = s3ClientOpt.foreach(_.shutdown())
+
+    def withS3[A](f: AmazonS3 => A): A = f(s3Client)
 
     def readObject(location: String): String =
     {
@@ -97,6 +104,11 @@ case class S3(aws: Aws)
     def hasObjects(bucket: String,
                    prefix: String): Boolean =
     {
-        ls(bucket = bucket, prefix = prefix).nonEmpty
+        withS3 { s3 =>
+            s3.listObjectsV2(new ListObjectsV2Request()
+                                 .withBucketName(bucket)
+                                 .withPrefix(prefix)
+                                 .withMaxKeys(1)).getKeyCount > 0
+        }
     }
 }

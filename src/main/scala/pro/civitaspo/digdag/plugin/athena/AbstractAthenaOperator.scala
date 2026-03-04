@@ -3,7 +3,7 @@ package pro.civitaspo.digdag.plugin.athena
 
 import com.typesafe.scalalogging.LazyLogging
 import io.digdag.client.config.{Config, ConfigFactory}
-import io.digdag.spi.{OperatorContext, SecretProvider, TemplateEngine}
+import io.digdag.spi.{OperatorContext, SecretProvider, TaskResult, TemplateEngine}
 import io.digdag.util.{BaseOperator, DurationParam}
 import pro.civitaspo.digdag.plugin.athena.aws.{Aws, AwsConf}
 
@@ -15,6 +15,12 @@ abstract class AbstractAthenaOperator(operatorName: String,
     extends BaseOperator(context)
         with LazyLogging
 {
+    override def run(): TaskResult =
+    {
+        try super.run()
+        finally aws.close()
+    }
+
     if (!logger.underlying.isDebugEnabled) {
         // NOTE: suppress aws-java-sdk logs because of a bit noisy logging.
         System.setProperty("org.apache.commons.logging.Log", "org.apache.commons.logging.impl.NoOpLog")

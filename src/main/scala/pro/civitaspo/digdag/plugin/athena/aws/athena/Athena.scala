@@ -12,6 +12,7 @@ import scala.util.chaining._
 
 case class Athena(aws: Aws)
     extends AwsService(aws)
+        with java.io.Closeable
 {
     val DEFAULT_WORKGROUP = "primary"
     lazy val DEFAULT_OUTPUT_LOCATION: String = {
@@ -19,13 +20,17 @@ case class Athena(aws: Aws)
         s"s3://aws-athena-query-results-$accountId-${aws.region}/"
     }
 
+    private var athenaClientOpt: Option[AmazonAthena] = None
 
-    def withAthena[A](f: AmazonAthena => A): A =
-    {
-        val athena = aws.buildService(AmazonAthenaClientBuilder.standard())
-        try f(athena)
-        finally athena.shutdown()
+    private def athenaClient: AmazonAthena = athenaClientOpt.getOrElse {
+        val c = aws.buildService(AmazonAthenaClientBuilder.standard())
+        athenaClientOpt = Some(c)
+        c
     }
+
+    override def close(): Unit = athenaClientOpt.foreach(_.shutdown())
+
+    def withAthena[A](f: AmazonAthena => A): A = f(athenaClient)
 
     def startQueryExecution(query: String,
                             database: Option[String] = None,

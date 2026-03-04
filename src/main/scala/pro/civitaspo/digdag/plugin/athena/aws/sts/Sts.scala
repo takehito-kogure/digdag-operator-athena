@@ -11,14 +11,19 @@ import scala.jdk.CollectionConverters._
 
 case class Sts(aws: Aws)
     extends AwsService(aws)
+        with java.io.Closeable
 {
+    private var stsClientOpt: Option[AWSSecurityTokenService] = None
 
-    def withSts[A](f: AWSSecurityTokenService => A): A =
-    {
-        val sts = aws.buildService(AWSSecurityTokenServiceClientBuilder.standard())
-        try f(sts)
-        finally sts.shutdown()
+    private def stsClient: AWSSecurityTokenService = stsClientOpt.getOrElse {
+        val c = aws.buildService(AWSSecurityTokenServiceClientBuilder.standard())
+        stsClientOpt = Some(c)
+        c
     }
+
+    override def close(): Unit = stsClientOpt.foreach(_.shutdown())
+
+    def withSts[A](f: AWSSecurityTokenService => A): A = f(stsClient)
 
     def getCallerIdentityAccountId: String =
     {
