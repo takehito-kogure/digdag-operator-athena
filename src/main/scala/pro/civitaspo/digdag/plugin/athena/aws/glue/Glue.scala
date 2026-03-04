@@ -1,26 +1,28 @@
 package pro.civitaspo.digdag.plugin.athena.aws.glue
 
 
-import com.amazonaws.services.glue.{AWSGlue, AWSGlueClientBuilder}
 import pro.civitaspo.digdag.plugin.athena.aws.{Aws, AwsService}
 import pro.civitaspo.digdag.plugin.athena.aws.glue.catalog.{DatabaseCatalog, PartitionCatalog, TableCatalog}
+import software.amazon.awssdk.services.glue.GlueClient
 
 
 case class Glue(aws: Aws)
     extends AwsService(aws)
         with java.io.Closeable
 {
-    private var glueClientOpt: Option[AWSGlue] = None
+    private var glueClientOpt: Option[GlueClient] = None
 
-    private def glueClient: AWSGlue = glueClientOpt.getOrElse {
-        val c = aws.buildService(AWSGlueClientBuilder.standard())
+    private def glueClient: GlueClient = glueClientOpt.getOrElse {
+        val b = aws.configureClient(GlueClient.builder())
+        aws.httpClientOption.foreach(b.httpClient)
+        val c = b.build()
         glueClientOpt = Some(c)
         c
     }
 
-    override def close(): Unit = glueClientOpt.foreach(_.shutdown())
+    override def close(): Unit = glueClientOpt.foreach(_.close())
 
-    def withGlue[A](f: AWSGlue => A): A = f(glueClient)
+    def withGlue[A](f: GlueClient => A): A = f(glueClient)
 
     // Use catalog api https://docs.aws.amazon.com/glue/latest/dg/aws-glue-api-catalog.html
     val database: DatabaseCatalog = catalog.DatabaseCatalog(glue = this)

@@ -3,8 +3,8 @@ package pro.civitaspo.digdag.plugin.athena.query
 
 import java.nio.charset.StandardCharsets.UTF_8
 
-import com.amazonaws.services.athena.model.{QueryExecution, QueryExecutionState}
-import com.amazonaws.services.athena.model.QueryExecutionState.{CANCELLED, FAILED, SUCCEEDED}
+import software.amazon.awssdk.services.athena.model.{QueryExecution, QueryExecutionState}
+import software.amazon.awssdk.services.athena.model.QueryExecutionState.{CANCELLED, FAILED, SUCCEEDED}
 import com.google.common.base.Optional
 import com.google.common.collect.ImmutableList
 import io.digdag.client.config.{Config, ConfigKey}
@@ -41,17 +41,17 @@ class AthenaQueryOperator(operatorName: String,
         def apply(qe: QueryExecution): LastQuery =
         {
             new LastQuery(
-                id = qe.getQueryExecutionId,
-                database = Try(Option(qe.getQueryExecutionContext.getDatabase)).getOrElse(None),
-                workGroup = Try(Option(qe.getWorkGroup)).getOrElse(None),
-                query = qe.getQuery,
-                output = qe.getResultConfiguration.getOutputLocation,
-                scanBytes = Try(Option(qe.getStatistics.getDataScannedInBytes.toLong)).getOrElse(None),
-                execMillis = Try(Option(qe.getStatistics.getEngineExecutionTimeInMillis.toLong)).getOrElse(None),
-                state = QueryExecutionState.fromValue(qe.getStatus.getState),
-                stateChangeReason = Try(Option(qe.getStatus.getStateChangeReason)).getOrElse(None),
-                submittedAt = Try(Option(qe.getStatus.getSubmissionDateTime.getTime / 1000)).getOrElse(None),
-                completedAt = Try(Option(qe.getStatus.getCompletionDateTime.getTime / 1000)).getOrElse(None)
+                id = qe.queryExecutionId,
+                database = Try(Option(qe.queryExecutionContext.database)).getOrElse(None),
+                workGroup = Try(Option(qe.workGroup)).getOrElse(None),
+                query = qe.query,
+                output = qe.resultConfiguration.outputLocation,
+                scanBytes = Try(Option(qe.statistics.dataScannedInBytes.toLong)).getOrElse(None),
+                execMillis = Try(Option(qe.statistics.engineExecutionTimeInMillis.toLong)).getOrElse(None),
+                state = QueryExecutionState.fromValue(qe.status.state.toString),
+                stateChangeReason = Try(Option(qe.status.stateChangeReason)).getOrElse(None),
+                submittedAt = Try(Option(qe.status.submissionDateTime.toEpochMilli / 1000)).getOrElse(None),
+                completedAt = Try(Option(qe.status.completionDateTime.toEpochMilli / 1000)).getOrElse(None)
                 )
         }
     }

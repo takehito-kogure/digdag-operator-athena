@@ -1,7 +1,7 @@
 package pro.civitaspo.digdag.plugin.athena.preview
 
 
-import com.amazonaws.services.athena.model.ResultSet
+import software.amazon.awssdk.services.athena.model.ResultSet
 import com.google.common.base.Optional
 import com.google.common.collect.ImmutableList
 import io.digdag.client.config.{Config, ConfigKey}
@@ -45,21 +45,21 @@ class AthenaPreviewOperator(operatorName: String,
         {
             new LastPreview(
                 id = id,
-                columns = rs.getResultSetMetadata.getColumnInfo.asScala.toSeq.map { ci =>
+                columns = rs.resultSetMetadata.columnInfo.asScala.toSeq.map { ci =>
                     LastPreviewColumnInfo(
-                        caseSensitive = Try(Option(Boolean.unbox(ci.getCaseSensitive))).getOrElse(None),
-                        catalog = Try(Option(ci.getCatalogName)).getOrElse(None),
-                        label = Try(Option(ci.getLabel)).getOrElse(None),
-                        name = ci.getName,
-                        nullable = Try(Option(ci.getNullable)).getOrElse(None),
-                        precision = Try(Option(ci.getPrecision.toInt)).getOrElse(None),
-                        scale = Try(Option(ci.getScale.toInt)).getOrElse(None),
-                        database = Try(Option(ci.getSchemaName)).getOrElse(None),
-                        table = Try(Option(ci.getTableName)).getOrElse(None),
-                        `type` = ci.getType
+                        caseSensitive = Try(Option(Boolean.unbox(ci.caseSensitive))).getOrElse(None),
+                        catalog = Try(Option(ci.catalogName)).getOrElse(None),
+                        label = Try(Option(ci.label)).getOrElse(None),
+                        name = ci.name,
+                        nullable = Try(Option(ci.nullable.toString)).getOrElse(None),
+                        precision = Try(Option(ci.precision.toInt)).getOrElse(None),
+                        scale = Try(Option(ci.scale.toInt)).getOrElse(None),
+                        database = Try(Option(ci.schemaName)).getOrElse(None),
+                        table = Try(Option(ci.tableName)).getOrElse(None),
+                        `type` = ci.`type`()
                         )
                 },
-                rows = rs.getRows.asScala.toSeq.map(_.getData.asScala.toSeq.map(_.getVarCharValue)).tail // the first row is column names
+                rows = rs.rows.asScala.toSeq.map(_.data.asScala.toSeq.map(_.varCharValue)).tail // the first row is column names
                 )
         }
     }

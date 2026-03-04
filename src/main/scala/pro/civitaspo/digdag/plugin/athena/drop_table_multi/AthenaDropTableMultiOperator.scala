@@ -1,9 +1,9 @@
 package pro.civitaspo.digdag.plugin.athena.drop_table_multi
 
 
-import java.util.Date
+import java.time.Instant
 
-import com.amazonaws.services.glue.model.Table
+import software.amazon.awssdk.services.glue.model.Table
 import io.digdag.client.config.Config
 import io.digdag.spi.{OperatorContext, TaskResult, TemplateEngine}
 import io.digdag.util.DurationParam
@@ -32,7 +32,7 @@ class AthenaDropTableMultiOperator(operatorName: String,
             if (!isProtected(t)) {
                 if (withLocation) {
                     val location: String = {
-                        val l = t.getStorageDescriptor.getLocation
+                        val l = t.storageDescriptor.location
                         if (l.endsWith("/")) l
                         else l + "/"
                     }
@@ -41,8 +41,8 @@ class AthenaDropTableMultiOperator(operatorName: String,
                         aws.s3.rm_r(location).foreach(uri => logger.info(s"Deleted: ${uri.toString}"))
                     }
                 }
-                logger.info(s"Drop the table '$database.${t.getName}'")
-                aws.glue.table.delete(catalogId, database, t.getName)
+                logger.info(s"Drop the table '$database.${t.name}'")
+                aws.glue.table.delete(catalogId, database, t.name)
             }
         }
         TaskResult.empty(cf)
@@ -56,10 +56,10 @@ class AthenaDropTableMultiOperator(operatorName: String,
                 Option(c.getOptional("created_within", classOf[DurationParam]).orNull()) match {
                     case None    => // do nothing
                     case Some(d) =>
-                        Option(t.getCreateTime).foreach { date =>
-                            if (isDateWithin(date, d)) {
-                                logger.info(s"Protect the table ${t.getDatabaseName}.${t.getName} because this is created" +
-                                                s" within ${d.toString} (created at ${t.getCreateTime.toString}).")
+                        Option(t.createTime).foreach { instant =>
+                            if (isInstantWithin(instant, d)) {
+                                logger.info(s"Protect the table ${t.databaseName}.${t.name} because this is created" +
+                                                s" within ${d.toString} (created at ${t.createTime.toString}).")
                                 return true
                             }
                         }
@@ -67,10 +67,10 @@ class AthenaDropTableMultiOperator(operatorName: String,
                 Option(c.getOptional("updated_within", classOf[DurationParam]).orNull()) match {
                     case None    => // do nothing
                     case Some(d) =>
-                        Option(t.getUpdateTime).foreach { date =>
-                            if (isDateWithin(date, d)) {
-                                logger.info(s"Protect the table ${t.getDatabaseName}.${t.getName} because this is updated" +
-                                                s" within ${d.toString} (updated at ${t.getUpdateTime.toString}).")
+                        Option(t.updateTime).foreach { instant =>
+                            if (isInstantWithin(instant, d)) {
+                                logger.info(s"Protect the table ${t.databaseName}.${t.name} because this is updated" +
+                                                s" within ${d.toString} (updated at ${t.updateTime.toString}).")
                                 return true
                             }
                         }
@@ -78,10 +78,10 @@ class AthenaDropTableMultiOperator(operatorName: String,
                 Option(c.getOptional("accessed_within", classOf[DurationParam]).orNull()) match {
                     case None    => // do nothing
                     case Some(d) =>
-                        Option(t.getLastAccessTime).foreach { date =>
-                            if (isDateWithin(date, d)) {
-                                logger.info(s"Protect the table ${t.getDatabaseName}.${t.getName} because this is accessed" +
-                                                s" within ${d.toString} (last accessed at ${t.getLastAccessTime.toString}).")
+                        Option(t.lastAccessTime).foreach { instant =>
+                            if (isInstantWithin(instant, d)) {
+                                logger.info(s"Protect the table ${t.databaseName}.${t.name} because this is accessed" +
+                                                s" within ${d.toString} (last accessed at ${t.lastAccessTime.toString}).")
                                 return true
                             }
                         }
@@ -90,11 +90,11 @@ class AthenaDropTableMultiOperator(operatorName: String,
         false
     }
 
-    protected def isDateWithin(target: Date,
-                               durationWithin: DurationParam): Boolean =
+    protected def isInstantWithin(target: Instant,
+                                  durationWithin: DurationParam): Boolean =
     {
-        val dateWithin: Date = new Date(now - durationWithin.getDuration.toMillis)
-        target.after(dateWithin)
+        val instantWithin: Instant = Instant.ofEpochMilli(now - durationWithin.getDuration.toMillis)
+        target.isAfter(instantWithin)
     }
 
 }

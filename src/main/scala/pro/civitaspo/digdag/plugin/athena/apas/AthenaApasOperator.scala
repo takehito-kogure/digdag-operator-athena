@@ -1,7 +1,7 @@
 package pro.civitaspo.digdag.plugin.athena.apas
 
 
-import com.amazonaws.services.glue.model.Table
+import software.amazon.awssdk.services.glue.model.Table
 import com.google.common.base.Optional
 import io.digdag.client.config.{Config, ConfigException}
 import io.digdag.spi.{ImmutableTaskResult, OperatorContext, TaskResult, TemplateEngine}
@@ -111,17 +111,17 @@ class AthenaApasOperator(operatorName: String,
 
         val t: Table = aws.glue.table.describe(catalogId, database, table)
         val fmt: String = format.getOrElse {
-            detectFormat(Try(t.getStorageDescriptor.getSerdeInfo.getSerializationLibrary).getOrElse("")).tap { s =>
+            detectFormat(Try(t.storageDescriptor.serdeInfo.serializationLibrary).getOrElse("")).tap { s =>
                 logger.info(s"Detect $s as format.")
             }
         }
         val c: Option[String] = compression.orElse {
-            detectCompression(Try(t.getParameters.asScala.toMap).getOrElse(Map())).tap { opt =>
+            detectCompression(Try(t.parameters.asScala.toMap).getOrElse(Map())).tap { opt =>
                 opt.foreach(s => logger.info(s"Detect $s as compression."))
             }
         }
         val fd: Option[String] = fieldDelimiter.orElse {
-            detectFieldDelimiter(Try(t.getStorageDescriptor.getSerdeInfo.getParameters.asScala.toMap).getOrElse(Map())).tap { opt =>
+            detectFieldDelimiter(Try(t.storageDescriptor.serdeInfo.parameters.asScala.toMap).getOrElse(Map())).tap { opt =>
                 opt.foreach(s => logger.info(s"Detect $s as field_delimiter."))
             }
         }

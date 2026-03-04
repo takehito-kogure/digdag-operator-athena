@@ -1,7 +1,7 @@
 package pro.civitaspo.digdag.plugin.athena.partition_exists
 
 
-import com.amazonaws.services.glue.model.Partition
+import software.amazon.awssdk.services.glue.model.Partition
 import com.google.common.collect.ImmutableList
 import io.digdag.client.config.{Config, ConfigKey}
 import io.digdag.spi.{OperatorContext, TaskResult, TemplateEngine}
@@ -52,7 +52,7 @@ class AthenaPartitionExistsOperator(operatorName: String,
             Try(aws.glue.partition.describe(catalogId, database, table, partitionKv)) match {
                 case Success(p) =>
                     val location: String = {
-                        val l = p.getStorageDescriptor.getLocation
+                        val l = p.storageDescriptor.location
                         if (l.endsWith("/")) l
                         else l + "/"
                     }

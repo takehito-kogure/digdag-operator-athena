@@ -1,11 +1,12 @@
 package pro.civitaspo.digdag.plugin.athena.aws.athena
 
 
-import com.amazonaws.services.athena.{AmazonAthena, AmazonAthenaClientBuilder}
-import com.amazonaws.services.athena.model.{GetQueryExecutionRequest, GetQueryResultsRequest, GetWorkGroupRequest, QueryExecution, QueryExecutionContext, QueryExecutionState, ResultConfiguration, ResultSet, StartQueryExecutionRequest}
 import io.digdag.util.DurationParam
 import pro.civitaspo.digdag.plugin.athena.aws.{Aws, AwsService}
+import software.amazon.awssdk.services.athena.AthenaClient
+import software.amazon.awssdk.services.athena.model._
 
+import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
 import scala.util.chaining._
 
@@ -20,17 +21,19 @@ case class Athena(aws: Aws)
         s"s3://aws-athena-query-results-$accountId-${aws.region}/"
     }
 
-    private var athenaClientOpt: Option[AmazonAthena] = None
+    private var athenaClientOpt: Option[AthenaClient] = None
 
-    private def athenaClient: AmazonAthena = athenaClientOpt.getOrElse {
-        val c = aws.buildService(AmazonAthenaClientBuilder.standard())
+    private def athenaClient: AthenaClient = athenaClientOpt.getOrElse {
+        val b = aws.configureClient(AthenaClient.builder())
+        aws.httpClientOption.foreach(b.httpClient)
+        val c = b.build()
         athenaClientOpt = Some(c)
         c
     }
 
-    override def close(): Unit = athenaClientOpt.foreach(_.shutdown())
+    override def close(): Unit = athenaClientOpt.foreach(_.close())
 
-    def withAthena[A](f: AmazonAthena => A): A = f(athenaClient)
+    def withAthena[A](f: AthenaClient => A): A = f(athenaClient)
 
     def startQueryExecution(query: String,
                             database: Option[String] = None,
@@ -38,15 +41,16 @@ case class Athena(aws: Aws)
                             outputLocation: Option[String] = None,
                             requestToken: Option[String] = None): String =
     {
-        val req = new StartQueryExecutionRequest()
-        req.setQueryString(query)
-        database.foreach(db => req.setQueryExecutionContext(new QueryExecutionContext().withDatabase(db)))
-        req.setWorkGroup(workGroup.getOrElse(DEFAULT_WORKGROUP))
-        req.setResultConfiguration(new ResultConfiguration()
-                                       .withOutputLocation(resolveWorkGroupOutputLocation(workGroup.getOrElse(DEFAULT_WORKGROUP))))
-        requestToken.foreach(req.setClientRequestToken)
+        val builder = StartQueryExecutionRequest.builder()
+            .queryString(query)
+            .workGroup(workGroup.getOrElse(DEFAULT_WORKGROUP))
+            .resultConfiguration(ResultConfiguration.builder()
+                                     .outputLocation(resolveWorkGroupOutputLocation(workGroup.getOrElse(DEFAULT_WORKGROUP)))
+                                     .build())
+        database.foreach(db => builder.queryExecutionContext(QueryExecutionContext.builder().database(db).build()))
+        requestToken.foreach(builder.clientRequestToken)
 
-        withAthena(_.startQueryExecution(req)).getQueryExecutionId
+        withAthena(_.startQueryExecution(builder.build())).queryExecutionId()
     }
 
     def resolveWorkGroupOutputLocation(workGroup: String): String =
@@ -55,11 +59,11 @@ case class Athena(aws: Aws)
             case DEFAULT_WORKGROUP => DEFAULT_OUTPUT_LOCATION
             case wg                =>
                 val t = Try {
-                    withAthena(_.getWorkGroup(new GetWorkGroupRequest().withWorkGroup(wg)))
-                        .getWorkGroup
-                        .getConfiguration
-                        .getResultConfiguration
-                        .getOutputLocation
+                    withAthena(_.getWorkGroup(GetWorkGroupRequest.builder().workGroup(wg).build()))
+                        .workGroup()
+                        .configuration()
+                        .resultConfiguration()
+                        .outputLocation()
                 }
                 t match {
                     case Success(outputLocation) => outputLocation
@@ -72,7 +76,7 @@ case class Athena(aws: Aws)
 
     def getQueryExecution(executionId: String): QueryExecution =
     {
-        withAthena(_.getQueryExecution(new GetQueryExecutionRequest().withQueryExecutionId(executionId))).getQueryExecution
+        withAthena(_.getQueryExecution(GetQueryExecutionRequest.builder().queryExecutionId(executionId).build())).queryExecution()
     }
 
     def waitQueryExecution(executionId: String,
@@ -113,9 +117,8 @@ case class Athena(aws: Aws)
             case Failure(exception) =>
                 logger.error(exception.getMessage, exception)
                 val qe = getQueryExecution(executionId = executionId)
-                throw new IllegalStateException(s"Failed the query execution: ${qe.withQuery(null).toString}", exception)
+                throw new IllegalStateException(s"Failed the query execution: ${qe.toBuilder.query(null).build().toString}", exception)
         }
-
 
         getQueryExecution(executionId = executionId)
     }
@@ -125,26 +128,22 @@ case class Athena(aws: Aws)
     {
         def requestRecursive(nextToken: Option[String] = None): ResultSet =
         {
-            val req: GetQueryResultsRequest = new GetQueryResultsRequest()
-                .withQueryExecutionId(executionId)
-                .withMaxResults(limit)
+            val builder = GetQueryResultsRequest.builder()
+                .queryExecutionId(executionId)
+                .maxResults(limit)
+            nextToken.foreach(builder.nextToken)
 
-            nextToken.foreach(req.setNextToken)
+            val res = withAthena(_.getQueryResults(builder.build()))
+            val rows = res.resultSet().rows().asScala.toBuffer
 
-            val res = withAthena(_.getQueryResults(req))
-            val rs = res.getResultSet.clone()
-
-            Option(res.getNextToken).foreach { token =>
+            Option(res.nextToken()).foreach { token =>
                 val next = requestRecursive(Option(token))
-                val rows = rs.getRows
-                rows.addAll(next.getRows)
-                rs.setRows(rows)
+                rows ++= next.rows().asScala
             }
 
-            rs
+            res.resultSet().toBuilder.rows(rows.asJava).build()
         }
 
         requestRecursive()
     }
-
 }

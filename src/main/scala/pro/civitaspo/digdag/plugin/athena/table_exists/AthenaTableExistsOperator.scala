@@ -49,7 +49,7 @@ class AthenaTableExistsOperator(operatorName: String,
             Try(aws.glue.table.describe(catalogId, database, table)) match {
                 case Success(t) =>
                     val location: String = {
-                        val l = t.getStorageDescriptor.getLocation
+                        val l = t.storageDescriptor().location()
                         if (l.endsWith("/")) l
                         else l + "/"
                     }

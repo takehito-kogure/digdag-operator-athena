@@ -25,8 +25,8 @@ class AthenaDiffSchemaInternalOperator(operatorName: String,
         val o = aws.glue.table.describe(catalogId, database, original)
         val c = aws.glue.table.describe(catalogId, database, comparison)
 
-        val originalColumns = o.getStorageDescriptor.getColumns.asScala.toSeq.diff(o.getPartitionKeys.asScala.toSeq).tapEach(_.setComment(null))
-        val comparisonColumns = c.getStorageDescriptor.getColumns.asScala.toSeq.tapEach(_.setComment(null))
+        val originalColumns = o.storageDescriptor.columns.asScala.toSeq.diff(o.partitionKeys.asScala.toSeq).map(_.toBuilder.comment(null).build())
+        val comparisonColumns = c.storageDescriptor.columns.asScala.toSeq.map(_.toBuilder.comment(null).build())
 
         val commonColumns = originalColumns.intersect(comparisonColumns)
         logger.info(s"Columns[${commonColumns.map(_.toString).mkString(",")}] are commonly in the tables $database.$comparison and $database.$original")

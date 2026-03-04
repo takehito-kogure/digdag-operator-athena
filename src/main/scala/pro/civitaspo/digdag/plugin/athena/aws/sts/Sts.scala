@@ -1,10 +1,10 @@
 package pro.civitaspo.digdag.plugin.athena.aws.sts
 
 
-import com.amazonaws.auth.BasicSessionCredentials
-import com.amazonaws.services.securitytoken.{AWSSecurityTokenService, AWSSecurityTokenServiceClientBuilder}
-import com.amazonaws.services.securitytoken.model.{AssumeRoleRequest, GetCallerIdentityRequest, PolicyDescriptorType}
 import pro.civitaspo.digdag.plugin.athena.aws.{Aws, AwsService}
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials
+import software.amazon.awssdk.services.sts.StsClient
+import software.amazon.awssdk.services.sts.model.{AssumeRoleRequest, GetCallerIdentityRequest, PolicyDescriptorType}
 
 import scala.jdk.CollectionConverters._
 
@@ -13,21 +13,23 @@ case class Sts(aws: Aws)
     extends AwsService(aws)
         with java.io.Closeable
 {
-    private var stsClientOpt: Option[AWSSecurityTokenService] = None
+    private var stsClientOpt: Option[StsClient] = None
 
-    private def stsClient: AWSSecurityTokenService = stsClientOpt.getOrElse {
-        val c = aws.buildService(AWSSecurityTokenServiceClientBuilder.standard())
+    private def stsClient: StsClient = stsClientOpt.getOrElse {
+        val b = aws.configureClient(StsClient.builder())
+        aws.httpClientOption.foreach(b.httpClient)
+        val c = b.build()
         stsClientOpt = Some(c)
         c
     }
 
-    override def close(): Unit = stsClientOpt.foreach(_.shutdown())
+    override def close(): Unit = stsClientOpt.foreach(_.close())
 
-    def withSts[A](f: AWSSecurityTokenService => A): A = f(stsClient)
+    def withSts[A](f: StsClient => A): A = f(stsClient)
 
     def getCallerIdentityAccountId: String =
     {
-        withSts(_.getCallerIdentity(new GetCallerIdentityRequest())).getAccount
+        withSts(_.getCallerIdentity(GetCallerIdentityRequest.builder().build())).account()
     }
 
     def assumeRole(roleSessionName: String,
@@ -37,20 +39,19 @@ case class Sts(aws: Aws)
                    policy: Option[String] = None,
                    policyArns: Option[Seq[PolicyDescriptorType]] = None,
                    serialNumber: Option[String] = None,
-                   tokenCode: Option[String] = None): BasicSessionCredentials =
+                   tokenCode: Option[String] = None): AwsSessionCredentials =
     {
-        val req = new AssumeRoleRequest()
-        req.setRoleSessionName(roleSessionName)
-        req.setRoleArn(roleArn)
-        req.setDurationSeconds(durationSeconds)
-        externalId.foreach(req.setExternalId)
-        policy.foreach(req.setPolicy)
-        policyArns.foreach(x => req.setPolicyArns(x.asJava))
-        serialNumber.foreach(req.setSerialNumber)
-        tokenCode.foreach(req.setTokenCode)
+        val builder = AssumeRoleRequest.builder()
+            .roleSessionName(roleSessionName)
+            .roleArn(roleArn)
+            .durationSeconds(durationSeconds)
+        externalId.foreach(builder.externalId)
+        policy.foreach(builder.policy)
+        policyArns.foreach(x => builder.policyArns(x.asJava))
+        serialNumber.foreach(builder.serialNumber)
+        tokenCode.foreach(builder.tokenCode)
 
-        val c = withSts(_.assumeRole(req)).getCredentials
-        new BasicSessionCredentials(c.getAccessKeyId, c.getSecretAccessKey, c.getSessionToken)
+        val c = withSts(_.assumeRole(builder.build())).credentials()
+        AwsSessionCredentials.create(c.accessKeyId(), c.secretAccessKey(), c.sessionToken())
     }
-
 }

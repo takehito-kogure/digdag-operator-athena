@@ -1,7 +1,7 @@
 package pro.civitaspo.digdag.plugin.athena.each_database
 
 
-import com.amazonaws.services.glue.model.Database
+import software.amazon.awssdk.services.glue.model.Database
 import io.digdag.client.config.Config
 import io.digdag.spi.{OperatorContext, TaskResult, TemplateEngine}
 import pro.civitaspo.digdag.plugin.athena.AbstractAthenaOperator
@@ -24,7 +24,7 @@ class AthenaEachDatabaseOperator(operatorName: String,
     {
         val doConfigs = aws.glue.database.list(catalogId).map { db =>
             cf.create().tap { newDoConfig =>
-                newDoConfig.getNestedOrSetEmpty(s"+${db.getName}").tap { c =>
+                newDoConfig.getNestedOrSetEmpty(s"+${db.name}").tap { c =>
                     c.setAll(doConfig)
                     c.setNested("_export", convertDatabaseToExport(db))
                 }
@@ -65,10 +65,10 @@ class AthenaEachDatabaseOperator(operatorName: String,
                 .getNestedOrSetEmpty("each_database")
                 .getNestedOrSetEmpty("export")
 
-            export.set("name", database.getName)
-            Option(database.getCreateTime).foreach(ct => export.set("created_at", ct.toInstant.toEpochMilli))
-            Option(database.getDescription).foreach(desc => export.set("description", desc))
-            Option(database.getParameters).foreach { p =>
+            export.set("name", database.name)
+            Option(database.createTime).foreach(ct => export.set("created_at", ct.toEpochMilli))
+            Option(database.description).foreach(desc => export.set("description", desc))
+            Option(database.parameters).foreach { p =>
                 p.asScala.foreach {
                     case (k: String, v: String) => export.getNestedOrSetEmpty("parameters").set(k, v)
                 }

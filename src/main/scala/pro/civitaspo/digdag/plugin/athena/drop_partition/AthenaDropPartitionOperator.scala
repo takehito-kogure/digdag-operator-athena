@@ -1,7 +1,7 @@
 package pro.civitaspo.digdag.plugin.athena.drop_partition
 
 
-import com.amazonaws.services.glue.model.Partition
+import software.amazon.awssdk.services.glue.model.Partition
 import io.digdag.client.config.Config
 import io.digdag.spi.{OperatorContext, TaskResult, TemplateEngine}
 import pro.civitaspo.digdag.plugin.athena.AbstractAthenaOperator
@@ -32,7 +32,7 @@ class AthenaDropPartitionOperator(operatorName: String,
         if (withLocation) {
             val p: Partition = aws.glue.partition.describe(catalogId, database, table, partitionKv)
             val location: String = {
-                val l = p.getStorageDescriptor.getLocation
+                val l = p.storageDescriptor.location
                 if (l.endsWith("/")) l
                 else l + "/"
             }

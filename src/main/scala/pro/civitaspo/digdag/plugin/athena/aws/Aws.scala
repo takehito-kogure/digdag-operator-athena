@@ -1,30 +1,38 @@
 package pro.civitaspo.digdag.plugin.athena.aws
 
 
-import com.amazonaws.{ClientConfiguration, Protocol}
-import com.amazonaws.auth.{AnonymousAWSCredentials, AWSCredentials, AWSCredentialsProvider, AWSStaticCredentialsProvider, BasicAWSCredentials, BasicSessionCredentials, EC2ContainerCredentialsProviderWrapper, EnvironmentVariableCredentialsProvider, SystemPropertiesCredentialsProvider, WebIdentityTokenCredentialsProvider}
-import com.amazonaws.auth.profile.{ProfileCredentialsProvider, ProfilesConfigFile}
-import com.amazonaws.client.builder.AwsClientBuilder
-import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
-import com.amazonaws.regions.{AwsEnvVarOverrideRegionProvider, AwsProfileRegionProvider, AwsSystemPropertyRegionProvider, InstanceMetadataRegionProvider, Regions}
 import com.google.common.base.Optional
 import io.digdag.client.config.ConfigException
 import pro.civitaspo.digdag.plugin.athena.aws.athena.Athena
 import pro.civitaspo.digdag.plugin.athena.aws.glue.Glue
 import pro.civitaspo.digdag.plugin.athena.aws.s3.S3
 import pro.civitaspo.digdag.plugin.athena.aws.sts.Sts
+import software.amazon.awssdk.auth.credentials._
+import software.amazon.awssdk.awscore.client.builder.AwsClientBuilder
+import software.amazon.awssdk.http.SdkHttpClient
+import software.amazon.awssdk.http.apache.{ApacheHttpClient, ProxyConfiguration}
+import software.amazon.awssdk.profiles.ProfileFile
+import software.amazon.awssdk.regions.Region
+import software.amazon.awssdk.regions.providers._
 
 
 case class Aws(conf: AwsConf)
     extends java.io.Closeable
 {
-    private[aws] def buildService[S <: AwsClientBuilder[S, T], T](builder: AwsClientBuilder[S, T]): T =
+    private[aws] def configureClient[B <: AwsClientBuilder[B, _]](builder: B): B =
     {
-        configureBuilderEndpointConfiguration(builder)
-            .withClientConfiguration(clientConfiguration)
-            .withCredentials(credentialsProvider)
-            .build()
+        builder.credentialsProvider(credentialsProvider)
+        if (conf.endpoint.isPresent) {
+            builder.endpointOverride(new java.net.URI(conf.endpoint.get()))
+        }
+        else {
+            builder.region(Region.of(region))
+        }
+        builder
     }
+
+    private[aws] def httpClientOption: Option[SdkHttpClient] =
+        if (conf.useHttpProxy) Some(apacheHttpClient) else None
 
     private var s3Opt: Option[S3] = None
     private var stsOpt: Option[Sts] = None
@@ -44,62 +52,42 @@ case class Aws(conf: AwsConf)
         glueOpt.foreach(_.close())
     }
 
-    lazy val region: String = {
-        conf.authMethod match {
-            case "env" =>
-                conf.region
-                    .or(Option(new AwsEnvVarOverrideRegionProvider().getRegion)
-                            .getOrElse(Regions.DEFAULT_REGION.getName))
-
-            case "instance" =>
-                conf.region
-                    .or(Option(new InstanceMetadataRegionProvider().getRegion)
-                            .getOrElse(Regions.DEFAULT_REGION.getName))
-
-            case "profile" =>
-                conf.region
-                    .or(Option(new AwsProfileRegionProvider().getRegion)
-                            .getOrElse(Regions.DEFAULT_REGION.getName))
-
-            case "properties" =>
-                conf.region
-                    .or(Option(new AwsSystemPropertyRegionProvider().getRegion)
-                            .getOrElse(Regions.DEFAULT_REGION.getName))
-
-            case "basic" | "anonymous" | "session" => conf.region.or(Regions.DEFAULT_REGION.getName)
-            case _                                 => conf.region.or(Regions.DEFAULT_REGION.getName)
-        }
-    }
-
-    private def configureBuilderEndpointConfiguration[S <: AwsClientBuilder[S, T], T](builder: AwsClientBuilder[S, T]): AwsClientBuilder[S, T] =
+    lazy val region: String =
     {
-        if (conf.endpoint.isPresent) {
-            val ec = new EndpointConfiguration(conf.endpoint.get(), region)
-            builder.setEndpointConfiguration(ec)
+        conf.region.or {
+            conf.authMethod match {
+                case "env"        => resolveRegion(new SystemSettingsRegionProvider())
+                case "instance"   => resolveRegion(new InstanceProfileRegionProvider())
+                case "profile"    => resolveRegion(new AwsProfileRegionProvider())
+                case "properties" => resolveRegion(new SystemSettingsRegionProvider())
+                case _            => Region.US_EAST_1.id()
+            }
         }
-        else {
-            builder.setRegion(region)
-        }
-        builder
     }
 
-    private def credentialsProvider: AWSCredentialsProvider =
+    private def resolveRegion(provider: AwsRegionProvider): String =
+    {
+        try provider.getRegion.id()
+        catch { case _: Exception => Region.US_EAST_1.id() }
+    }
+
+    private[aws] def credentialsProvider: AwsCredentialsProvider =
     {
         if (!conf.roleArn.isPresent) return standardCredentialsProvider
         assumeRoleCredentialsProvider(standardCredentialsProvider)
     }
 
-    private def standardCredentialsProvider: AWSCredentialsProvider =
+    private def standardCredentialsProvider: AwsCredentialsProvider =
     {
         conf.authMethod match {
-            case "basic"              => basicAuthMethodAWSCredentialsProvider
-            case "env"                => envAuthMethodAWSCredentialsProvider
-            case "instance"           => instanceAuthMethodAWSCredentialsProvider
-            case "profile"            => profileAuthMethodAWSCredentialsProvider
-            case "properties"         => propertiesAuthMethodAWSCredentialsProvider
-            case "anonymous"          => anonymousAuthMethodAWSCredentialsProvider
-            case "session"            => sessionAuthMethodAWSCredentialsProvider
-            case "web_identity_token" => webIdentityTokenAuthMethodAWSCredentialsProvider
+            case "basic"              => basicAuthMethodCredentialsProvider
+            case "env"                => envAuthMethodCredentialsProvider
+            case "instance"           => instanceAuthMethodCredentialsProvider
+            case "profile"            => profileAuthMethodCredentialsProvider
+            case "properties"         => propertiesAuthMethodCredentialsProvider
+            case "anonymous"          => anonymousAuthMethodCredentialsProvider
+            case "session"            => sessionAuthMethodCredentialsProvider
+            case "web_identity_token" => webIdentityTokenAuthMethodCredentialsProvider
             case _                    =>
                 throw new ConfigException(
                     s"""auth_method: "${conf.authMethod}" is not supported. available `auth_method`s are "basic", "env", "instance", "profile", "properties", "anonymous", or "session"."""
@@ -107,100 +95,110 @@ case class Aws(conf: AwsConf)
         }
     }
 
-    private def assumeRoleCredentialsProvider(credentialsProviderToAssumeRole: AWSCredentialsProvider): AWSCredentialsProvider =
+    private def assumeRoleCredentialsProvider(provider: AwsCredentialsProvider): AwsCredentialsProvider =
     {
-        val aws = Aws(this.conf.copy(roleArn = Optional.absent()))
-        val cred: BasicSessionCredentials = aws.sts.assumeRole(roleArn = conf.roleArn.get(),
-                                                               roleSessionName = conf.roleSessionName,
-                                                               durationSeconds = conf.assumeRoleTimeoutDuration.getDuration.getSeconds.toInt)
-        new AWSStaticCredentialsProvider(cred)
+        val tmpAws = Aws(this.conf.copy(roleArn = Optional.absent()))
+        try {
+            val cred = tmpAws.sts.assumeRole(
+                roleArn = conf.roleArn.get(),
+                roleSessionName = conf.roleSessionName,
+                durationSeconds = conf.assumeRoleTimeoutDuration.getDuration.getSeconds.toInt
+            )
+            StaticCredentialsProvider.create(cred)
+        }
+        finally {
+            tmpAws.close()
+        }
     }
 
-    private def basicAuthMethodAWSCredentialsProvider: AWSCredentialsProvider =
+    private def basicAuthMethodCredentialsProvider: AwsCredentialsProvider =
     {
         if (!conf.accessKeyId.isPresent) throw new ConfigException(s"""`access_key_id` must be set when `auth_method` is "${conf.authMethod}".""")
         if (!conf.secretAccessKey.isPresent) throw new ConfigException(s"""`secret_access_key` must be set when `auth_method` is "${conf.authMethod}".""")
-        val credentials: AWSCredentials = new BasicAWSCredentials(conf.accessKeyId.get(), conf.secretAccessKey.get())
-        new AWSStaticCredentialsProvider(credentials)
+        StaticCredentialsProvider.create(
+            AwsBasicCredentials.create(conf.accessKeyId.get(), conf.secretAccessKey.get())
+        )
     }
 
-    private def envAuthMethodAWSCredentialsProvider: AWSCredentialsProvider =
+    private def envAuthMethodCredentialsProvider: AwsCredentialsProvider =
     {
         if (!conf.isAllowedAuthMethodEnv) throw new ConfigException(s"""auth_method: "${conf.authMethod}" is not allowed.""")
-        new EnvironmentVariableCredentialsProvider
+        EnvironmentVariableCredentialsProvider.create()
     }
 
-    private def instanceAuthMethodAWSCredentialsProvider: AWSCredentialsProvider =
+    private def instanceAuthMethodCredentialsProvider: AwsCredentialsProvider =
     {
         if (!conf.isAllowedAuthMethodInstance) throw new ConfigException(s"""auth_method: "${conf.authMethod}" is not allowed.""")
-        // NOTE: combination of InstanceProfileCredentialsProvider and ContainerCredentialsProvider
-        new EC2ContainerCredentialsProviderWrapper
+        InstanceProfileCredentialsProvider.create()
     }
 
-    private def profileAuthMethodAWSCredentialsProvider: AWSCredentialsProvider =
+    private def profileAuthMethodCredentialsProvider: AwsCredentialsProvider =
     {
         if (!conf.isAllowedAuthMethodProfile) throw new ConfigException(s"""auth_method: "${conf.authMethod}" is not allowed.""")
-        if (!conf.profileFile.isPresent) return new ProfileCredentialsProvider(conf.profileName)
-        val pf: ProfilesConfigFile = new ProfilesConfigFile(conf.profileFile.get())
-        new ProfileCredentialsProvider(pf, conf.profileName)
+        if (!conf.profileFile.isPresent) {
+            return ProfileCredentialsProvider.builder()
+                .profileName(conf.profileName)
+                .build()
+        }
+        ProfileCredentialsProvider.builder()
+            .profileFile(ProfileFile.builder()
+                             .content(java.nio.file.Paths.get(conf.profileFile.get()))
+                             .`type`(ProfileFile.Type.CREDENTIALS)
+                             .build())
+            .profileName(conf.profileName)
+            .build()
     }
 
-    private def propertiesAuthMethodAWSCredentialsProvider: AWSCredentialsProvider =
+    private def propertiesAuthMethodCredentialsProvider: AwsCredentialsProvider =
     {
         if (!conf.isAllowedAuthMethodProperties) throw new ConfigException(s"""auth_method: "${conf.authMethod}" is not allowed.""")
-        new SystemPropertiesCredentialsProvider()
+        SystemPropertyCredentialsProvider.create()
     }
 
-    private def anonymousAuthMethodAWSCredentialsProvider: AWSCredentialsProvider =
+    private def anonymousAuthMethodCredentialsProvider: AwsCredentialsProvider =
     {
-        val credentials: AWSCredentials = new AnonymousAWSCredentials
-        new AWSStaticCredentialsProvider(credentials)
+        AnonymousCredentialsProvider.create()
     }
 
-    private def sessionAuthMethodAWSCredentialsProvider: AWSCredentialsProvider =
+    private def sessionAuthMethodCredentialsProvider: AwsCredentialsProvider =
     {
         if (!conf.accessKeyId.isPresent) throw new ConfigException(s"""`access_key_id` must be set when `auth_method` is "${conf.authMethod}".""")
         if (!conf.secretAccessKey.isPresent) throw new ConfigException(s"""`secret_access_key` must be set when `auth_method` is "${conf.authMethod}".""")
         if (!conf.sessionToken.isPresent) throw new ConfigException(s"""`session_token` must be set when `auth_method` is "${conf.authMethod}".""")
-        val credentials: AWSCredentials = new BasicSessionCredentials(conf.accessKeyId.get(), conf.secretAccessKey.get(), conf.sessionToken.get())
-        new AWSStaticCredentialsProvider(credentials)
+        StaticCredentialsProvider.create(
+            AwsSessionCredentials.create(conf.accessKeyId.get(), conf.secretAccessKey.get(), conf.sessionToken.get())
+        )
     }
 
-    private def webIdentityTokenAuthMethodAWSCredentialsProvider: AWSCredentialsProvider =
+    private def webIdentityTokenAuthMethodCredentialsProvider: AwsCredentialsProvider =
     {
         if (!conf.isAllowedAuthMethodWebIdentityToken) throw new ConfigException(s"""auth_method: "${conf.authMethod}" is not allowed.""")
         if (!conf.webIdentityTokenFile.or(conf.defaultWebIdentityTokenFile).isPresent) throw new ConfigException(s"""`web_identity_token_file` or `athena.allow_auth_method_web_identity_token` (system) must be set when `auth_method` is "${conf.authMethod}".""")
         if (!conf.webIdentityRoleArn.or(conf.defaultWebIdentityRoleArn).isPresent) throw new ConfigException(s"""`web_identity_role_arn` or `athena.allow_auth_method_web_identity_role_arn` (system) must be set when `auth_method` is "${conf.authMethod}".""")
-        WebIdentityTokenCredentialsProvider.builder()
-            .webIdentityTokenFile(conf.webIdentityTokenFile.or(conf.defaultWebIdentityTokenFile).get())
+        WebIdentityTokenFileCredentialsProvider.builder()
+            .webIdentityTokenFile(java.nio.file.Paths.get(conf.webIdentityTokenFile.or(conf.defaultWebIdentityTokenFile).get()))
             .roleArn(conf.webIdentityRoleArn.or(conf.defaultWebIdentityRoleArn).get())
             .roleSessionName(conf.roleSessionName)
             .build()
     }
 
-    private def clientConfiguration: ClientConfiguration =
+    private def apacheHttpClient: SdkHttpClient =
     {
-        if (!conf.useHttpProxy) return new ClientConfiguration()
-
         val host: String = conf.httpProxy.getSecret("host")
         val port: Optional[String] = conf.httpProxy.getSecretOptional("port")
-        val protocol: Protocol = conf.httpProxy.getSecretOptional("scheme").or("https") match {
-            case "http"  => Protocol.HTTP
-            case "https" => Protocol.HTTPS
-            case _       => throw new ConfigException(s"""`athena.http_proxy.scheme` must be "http" or "https".""")
-        }
+        val scheme: String = conf.httpProxy.getSecretOptional("scheme").or("https")
         val user: Optional[String] = conf.httpProxy.getSecretOptional("user")
         val password: Optional[String] = conf.httpProxy.getSecretOptional("password")
 
-        val cc = new ClientConfiguration()
-            .withProxyHost(host)
-            .withProtocol(protocol)
+        val portPart = if (port.isPresent) s":${port.get()}" else ""
+        val proxyUri = new java.net.URI(s"$scheme://$host$portPart")
 
-        if (port.isPresent) cc.setProxyPort(port.get().toInt)
-        if (user.isPresent) cc.setProxyUsername(user.get())
-        if (password.isPresent) cc.setProxyPassword(password.get())
+        val proxyBuilder = ProxyConfiguration.builder().endpoint(proxyUri)
+        if (user.isPresent) proxyBuilder.username(user.get())
+        if (password.isPresent) proxyBuilder.password(password.get())
 
-        cc
+        ApacheHttpClient.builder()
+            .proxyConfiguration(proxyBuilder.build())
+            .build()
     }
-
 }

@@ -1,7 +1,7 @@
 package pro.civitaspo.digdag.plugin.athena.drop_table
 
 
-import com.amazonaws.services.glue.model.Table
+import software.amazon.awssdk.services.glue.model.Table
 import io.digdag.client.config.Config
 import io.digdag.spi.{OperatorContext, TaskResult, TemplateEngine}
 import pro.civitaspo.digdag.plugin.athena.AbstractAthenaOperator
@@ -30,7 +30,7 @@ class AthenaDropTableOperator(operatorName: String,
         if (withLocation) {
             val t: Table = aws.glue.table.describe(catalogId, database, table)
             val location: String = {
-                val l = t.getStorageDescriptor.getLocation
+                val l = t.storageDescriptor.location
                 if (l.endsWith("/")) l
                 else l + "/"
             }

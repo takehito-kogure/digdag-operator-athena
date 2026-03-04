@@ -1,8 +1,8 @@
 package pro.civitaspo.digdag.plugin.athena.aws.glue.catalog
 
 
-import com.amazonaws.services.glue.model.{DeleteTableRequest, GetTableRequest, GetTablesRequest, Table}
 import pro.civitaspo.digdag.plugin.athena.aws.glue.Glue
+import software.amazon.awssdk.services.glue.model.{DeleteTableRequest, GetTableRequest, GetTablesRequest, Table}
 
 import scala.jdk.CollectionConverters._
 import scala.util.Try
@@ -18,11 +18,11 @@ case class TableCatalog(glue: Glue)
     {
         val key = s"${catalogIdOption.getOrElse("")}/$database/$table"
         tableCache.getOrElseUpdate(key, {
-            val req = new GetTableRequest()
-            catalogIdOption.foreach(req.setCatalogId)
-            req.setDatabaseName(database)
-            req.setName(table)
-            glue.withGlue(_.getTable(req)).getTable
+            val builder = GetTableRequest.builder()
+                .databaseName(database)
+                .name(table)
+            catalogIdOption.foreach(builder.catalogId)
+            glue.withGlue(_.getTable(builder.build())).table()
         })
     }
 
@@ -30,7 +30,7 @@ case class TableCatalog(glue: Glue)
                       database: String,
                       table: String): Boolean =
     {
-        !describe(catalogIdOption, database, table).getPartitionKeys.isEmpty
+        !describe(catalogIdOption, database, table).partitionKeys().isEmpty
     }
 
     def exists(catalogIdOption: Option[String],
@@ -44,11 +44,11 @@ case class TableCatalog(glue: Glue)
                database: String,
                table: String): Unit =
     {
-        val req = new DeleteTableRequest()
-        catalogIdOption.foreach(req.setCatalogId)
-        req.setDatabaseName(database)
-        req.setName(table)
-        glue.withGlue(_.deleteTable(req))
+        val builder = DeleteTableRequest.builder()
+            .databaseName(database)
+            .name(table)
+        catalogIdOption.foreach(builder.catalogId)
+        glue.withGlue(_.deleteTable(builder.build()))
     }
 
     def list(catalogIdOption: Option[String],
@@ -56,22 +56,21 @@ case class TableCatalog(glue: Glue)
              expression: Option[String] = None,
              limit: Option[Int] = None): Seq[Table] =
     {
-        val req = new GetTablesRequest()
-        catalogIdOption.foreach(req.setCatalogId)
-        req.setDatabaseName(database)
-        expression.foreach(req.setExpression)
-        limit.foreach(l => req.setMaxResults(l))
+        val builder = GetTablesRequest.builder().databaseName(database)
+        catalogIdOption.foreach(builder.catalogId)
+        expression.foreach(builder.expression)
+        limit.foreach(l => builder.maxResults(l))
 
         def recursiveGetTables(nextToken: Option[String] = None,
                                lastTables: Seq[Table] = Seq()): Seq[Table] =
         {
-            nextToken.foreach(req.setNextToken)
-            val results = glue.withGlue(_.getTables(req))
-            val tables = lastTables ++ results.getTableList.asScala.toSeq
+            nextToken.foreach(builder.nextToken)
+            val results = glue.withGlue(_.getTables(builder.build()))
+            val tables = lastTables ++ results.tableList().asScala.toSeq
             limit.foreach { i =>
                 if (tables.length >= i) return tables.slice(0, i)
             }
-            Option(results.getNextToken) match {
+            Option(results.nextToken()) match {
                 case Some(nt) => recursiveGetTables(nextToken = Option(nt), lastTables = tables)
                 case None     => tables
             }
