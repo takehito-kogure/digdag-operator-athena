@@ -63,8 +63,8 @@ case class Aws(conf: AwsConf)
         glueOpt.foreach(_.close())
         httpClientOpt.foreach(_.close())
         credentialsProviderOpt.foreach {
-            case c: java.io.Closeable => c.close()
-            case _                    =>
+            case c: AutoCloseable => c.close()
+            case _                =>
         }
     }
 
