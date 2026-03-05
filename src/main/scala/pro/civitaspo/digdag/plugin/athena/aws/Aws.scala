@@ -73,7 +73,7 @@ case class Aws(conf: AwsConf)
         conf.region.or {
             conf.authMethod match {
                 case "env"        => resolveRegion(new SystemSettingsRegionProvider())
-                case "instance"   => resolveRegion(new InstanceProfileRegionProvider())
+                case "instance"   => resolveRegion(new DefaultAwsRegionProviderChain())
                 case "profile"    => resolveRegion(new AwsProfileRegionProvider())
                 case "properties" => resolveRegion(new SystemSettingsRegionProvider())
                 case _            => resolveRegion(new DefaultAwsRegionProviderChain())
@@ -149,7 +149,7 @@ case class Aws(conf: AwsConf)
     private def instanceAuthMethodCredentialsProvider: AwsCredentialsProvider =
     {
         if (!conf.isAllowedAuthMethodInstance) throw new ConfigException(s"""auth_method: "${conf.authMethod}" is not allowed.""")
-        InstanceProfileCredentialsProvider.create()
+        DefaultCredentialsProvider.builder().build()
     }
 
     private def profileAuthMethodCredentialsProvider: AwsCredentialsProvider =
