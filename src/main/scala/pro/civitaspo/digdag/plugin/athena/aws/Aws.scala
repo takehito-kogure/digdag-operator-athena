@@ -31,8 +31,19 @@ case class Aws(conf: AwsConf)
         builder
     }
 
+    // Lazily initialized once and closed in close()
+    private var httpClientOpt: Option[SdkHttpClient] = None
+    private var credentialsProviderOpt: Option[AwsCredentialsProvider] = None
+
     private[aws] def httpClientOption: Option[SdkHttpClient] =
-        if (conf.useHttpProxy) Some(apacheHttpClient) else None
+    {
+        if (!conf.useHttpProxy) return None
+        httpClientOpt.orElse {
+            val c = apacheHttpClient
+            httpClientOpt = Some(c)
+            httpClientOpt
+        }
+    }
 
     private var s3Opt: Option[S3] = None
     private var stsOpt: Option[Sts] = None
@@ -50,6 +61,11 @@ case class Aws(conf: AwsConf)
         stsOpt.foreach(_.close())
         athenaOpt.foreach(_.close())
         glueOpt.foreach(_.close())
+        httpClientOpt.foreach(_.close())
+        credentialsProviderOpt.foreach {
+            case c: java.io.Closeable => c.close()
+            case _                    =>
+        }
     }
 
     lazy val region: String =
@@ -73,8 +89,12 @@ case class Aws(conf: AwsConf)
 
     private[aws] def credentialsProvider: AwsCredentialsProvider =
     {
-        if (!conf.roleArn.isPresent) return standardCredentialsProvider
-        assumeRoleCredentialsProvider(standardCredentialsProvider)
+        credentialsProviderOpt.getOrElse {
+            val p = if (!conf.roleArn.isPresent) standardCredentialsProvider
+                    else assumeRoleCredentialsProvider(standardCredentialsProvider)
+            credentialsProviderOpt = Some(p)
+            p
+        }
     }
 
     private def standardCredentialsProvider: AwsCredentialsProvider =
