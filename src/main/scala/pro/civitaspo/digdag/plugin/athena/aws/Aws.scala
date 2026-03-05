@@ -76,7 +76,7 @@ case class Aws(conf: AwsConf)
                 case "instance"   => resolveRegion(new InstanceProfileRegionProvider())
                 case "profile"    => resolveRegion(new AwsProfileRegionProvider())
                 case "properties" => resolveRegion(new SystemSettingsRegionProvider())
-                case _            => Region.US_EAST_1.id()
+                case _            => resolveRegion(new DefaultAwsRegionProviderChain())
             }
         }
     }

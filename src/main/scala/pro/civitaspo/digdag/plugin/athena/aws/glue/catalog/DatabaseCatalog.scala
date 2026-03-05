@@ -1,14 +1,16 @@
 package pro.civitaspo.digdag.plugin.athena.aws.glue.catalog
 
 
+import com.typesafe.scalalogging.LazyLogging
 import pro.civitaspo.digdag.plugin.athena.aws.glue.Glue
 import software.amazon.awssdk.services.glue.model.{Database, GetDatabaseRequest, GetDatabasesRequest}
 
 import scala.jdk.CollectionConverters._
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 
 
 case class DatabaseCatalog(glue: Glue)
+    extends LazyLogging
 {
 
     def describe(catalogIdOption: Option[String],
@@ -22,7 +24,12 @@ case class DatabaseCatalog(glue: Glue)
     def exists(catalogIdOption: Option[String],
                database: String): Boolean =
     {
-        Try(describe(catalogIdOption, database)).isSuccess
+        Try(describe(catalogIdOption, database)) match {
+            case Success(_)  => true
+            case Failure(ex) =>
+                logger.warn(s"database '$database' existence check failed: ${ex.getClass.getName}: ${ex.getMessage}")
+                false
+        }
     }
 
     def list(catalogIdOption: Option[String],
