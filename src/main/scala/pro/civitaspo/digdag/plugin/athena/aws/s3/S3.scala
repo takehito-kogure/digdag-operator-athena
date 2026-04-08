@@ -59,9 +59,11 @@ case class S3(aws: Aws)
     def ls(bucket: String,
            prefix: String): Seq[S3Uri] =
     {
-        withS3(_.listObjectsV2Paginator(
+        val paginator = withS3(_.listObjectsV2Paginator(
             ListObjectsV2Request.builder().bucket(bucket).prefix(prefix).build()
-        )).contents().asScala.toSeq.map(o => S3Uri(bucket = bucket, key = o.key()))
+        ))
+        try paginator.contents().asScala.toSeq.map(o => S3Uri(bucket = bucket, key = o.key()))
+        finally paginator.close()
     }
 
     def rm(location: String): Unit =
@@ -93,13 +95,15 @@ case class S3(aws: Aws)
     def rm_r(bucket: String,
              prefix: String): Seq[S3Uri] =
     {
-        withS3(_.listObjectsV2Paginator(
+        val paginator = withS3(_.listObjectsV2Paginator(
             ListObjectsV2Request.builder().bucket(bucket).prefix(prefix).build()
-        )).contents().asScala.map { obj =>
+        ))
+        try paginator.contents().asScala.map { obj =>
             val uri = S3Uri(bucket = bucket, key = obj.key())
             rm(uri = uri)
             uri
         }.toSeq
+        finally paginator.close()
     }
 
     def hasObjects(location: String): Boolean =
