@@ -23,7 +23,11 @@ case class S3(aws: Aws)
         c
     }
 
-    override def close(): Unit = s3ClientOpt.foreach(_.close())
+    override def close(): Unit =
+    {
+        s3ClientOpt.foreach(_.close())
+        s3ClientOpt = None
+    }
 
     def withS3[A](f: S3Client => A): A = f(s3Client)
 
@@ -62,8 +66,7 @@ case class S3(aws: Aws)
         val paginator = withS3(_.listObjectsV2Paginator(
             ListObjectsV2Request.builder().bucket(bucket).prefix(prefix).build()
         ))
-        try paginator.contents().asScala.toSeq.map(o => S3Uri(bucket = bucket, key = o.key()))
-        finally paginator.close()
+        paginator.contents().asScala.toSeq.map(o => S3Uri(bucket = bucket, key = o.key()))
     }
 
     def rm(location: String): Unit =
@@ -98,12 +101,11 @@ case class S3(aws: Aws)
         val paginator = withS3(_.listObjectsV2Paginator(
             ListObjectsV2Request.builder().bucket(bucket).prefix(prefix).build()
         ))
-        try paginator.contents().asScala.map { obj =>
+        paginator.contents().asScala.map { obj =>
             val uri = S3Uri(bucket = bucket, key = obj.key())
             rm(uri = uri)
             uri
         }.toSeq
-        finally paginator.close()
     }
 
     def hasObjects(location: String): Boolean =

@@ -9,8 +9,11 @@ import scala.util.Try
 
 
 case class TableCatalog(glue: Glue)
+    extends java.io.Closeable
 {
     private val tableCache = scala.collection.mutable.Map.empty[String, Table]
+
+    override def close(): Unit = tableCache.clear()
 
     def describe(catalogIdOption: Option[String],
                  database: String,

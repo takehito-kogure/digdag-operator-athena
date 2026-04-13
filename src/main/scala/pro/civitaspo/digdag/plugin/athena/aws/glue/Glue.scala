@@ -20,7 +20,12 @@ case class Glue(aws: Aws)
         c
     }
 
-    override def close(): Unit = glueClientOpt.foreach(_.close())
+    override def close(): Unit =
+    {
+        table.close()
+        glueClientOpt.foreach(_.close())
+        glueClientOpt = None
+    }
 
     def withGlue[A](f: GlueClient => A): A = f(glueClient)
 

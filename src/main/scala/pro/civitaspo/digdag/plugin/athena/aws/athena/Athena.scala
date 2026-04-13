@@ -31,7 +31,11 @@ case class Athena(aws: Aws)
         c
     }
 
-    override def close(): Unit = athenaClientOpt.foreach(_.close())
+    override def close(): Unit =
+    {
+        athenaClientOpt.foreach(_.close())
+        athenaClientOpt = None
+    }
 
     def withAthena[A](f: AthenaClient => A): A = f(athenaClient)
 

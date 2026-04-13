@@ -58,14 +58,20 @@ case class Aws(conf: AwsConf)
     override def close(): Unit =
     {
         s3Opt.foreach(_.close())
+        s3Opt = None
         stsOpt.foreach(_.close())
+        stsOpt = None
         athenaOpt.foreach(_.close())
+        athenaOpt = None
         glueOpt.foreach(_.close())
+        glueOpt = None
         httpClientOpt.foreach(_.close())
+        httpClientOpt = None
         credentialsProviderOpt.foreach {
             case c: AutoCloseable => c.close()
             case _                =>
         }
+        credentialsProviderOpt = None
     }
 
     lazy val region: String =

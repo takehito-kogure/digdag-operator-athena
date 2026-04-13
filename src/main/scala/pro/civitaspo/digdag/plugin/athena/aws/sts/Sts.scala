@@ -23,7 +23,11 @@ case class Sts(aws: Aws)
         c
     }
 
-    override def close(): Unit = stsClientOpt.foreach(_.close())
+    override def close(): Unit =
+    {
+        stsClientOpt.foreach(_.close())
+        stsClientOpt = None
+    }
 
     def withSts[A](f: StsClient => A): A = f(stsClient)
 
