@@ -1,14 +1,14 @@
 plugins {
     id 'scala'
     id 'maven-publish'
-    id 'com.github.johnrengelman.shadow' version '5.1.0'
+    id 'com.github.johnrengelman.shadow' version '5.2.0'
 }
 
 group = 'pro.civitaspo'
-version = '0.4.0'
+version = '0.4.10'
 
 def digdagVersion = '0.10.5.1'
-def awsSdkV2Version = "2.42.4"
+def awsSdkV2Version = "2.42.33"
 def scalaSemanticVersion = "2.13.0"
 def depScalaVersion = "2.13"
 
